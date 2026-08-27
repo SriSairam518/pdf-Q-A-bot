@@ -55,7 +55,7 @@ if 'vector_store' in st.session_state:
             label_visibility="collapsed"
         )
     with col2:
-        submit = st.button("➡️")
+        submit = st.button("next ->")
 
     # If user presses arrow or Enter
     if submit and st.session_state['user_question']:
@@ -69,7 +69,7 @@ if 'vector_store' in st.session_state:
             )
             answer = qa.invoke(st.session_state['user_question'])
             answer_str = answer["result"]
-            answer_str += "\n\n---\n<span style='color:#ff4b4b;font-size:1.1em;'>chl chl puri pdf padh😒</span>"
+            answer_str += "\n\n---\n<span style='color:#ff4b4b;font-size:1.1em;'>read complete pdf</span>"
             st.session_state['chat_history'].append({
                 "question": st.session_state['user_question'],
                 "answer": answer_str
