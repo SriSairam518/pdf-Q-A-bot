@@ -153,10 +153,10 @@ Possible improvements include:
 
 ## 👨‍💻 Skills Demonstrated
 
-**Generative AI:** RAG, LLMs, Text Embeddings, Semantic Search
-**NLP:** Text Processing, Document Chunking
-**Frameworks:** LangChain, Streamlit
-**Vector Search:** FAISS
-**Models:** Llama 3, Hugging Face Embeddings
-**APIs:** Groq API
+**Generative AI:** RAG, LLMs, Text Embeddings, Semantic Search \
+**NLP:** Text Processing, Document Chunking \
+**Frameworks:** LangChain, Streamlit \
+**Vector Search:** FAISS \
+**Models:** Llama 3, Hugging Face Embeddings \
+**APIs:** Groq API \
 **Programming:** Python
