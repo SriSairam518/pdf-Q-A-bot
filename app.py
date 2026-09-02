@@ -1,89 +1,115 @@
 import streamlit as st
-from utils import extract_text_from_pdf, chunk_text, create_vector_store
-from langchain_groq import ChatGroq
-from langchain.chains import RetrievalQA
-import tempfile
 import os
 from dotenv import load_dotenv
-from pydantic import SecretStr
+from utils import process_multiple_pdfs, get_relevant_context, answer_question
 
 load_dotenv()
+
+st.set_page_config(
+    page_title="NoteMate - PDF Q&A Bot",
+    page_icon="📄",
+    layout="wide"
+)
+
+# Title & Description
+st.title("📄 NoteMate – Multi-PDF Question Answering Bot")
+st.markdown("Upload one or multiple PDF documents and ask questions across all of them!")
+
+# API Key configuration
 api_key = os.getenv("GROQ_API_KEY")
-if not api_key:
-    raise ValueError("GROQ_API_KEY not set in your .env file.")
-GROQ_API_KEY = SecretStr(api_key)
 
-st.title("NoteMate – Your AI PDF Companion (Groq Edition)")
+with st.sidebar:
+    st.header("⚙️ Settings")
+    if not api_key:
+        api_key = st.text_input("Enter Groq API Key:", type="password", help="Get your key at https://console.groq.com")
+        if not api_key:
+            st.warning("Please provide a Groq API key to proceed.")
+    else:
+        st.success("✅ Groq API Key loaded!")
 
-# Initialize chat history in session state
-if 'chat_history' not in st.session_state:
-    st.session_state['chat_history'] = []
-if 'is_generating' not in st.session_state:
-    st.session_state['is_generating'] = False
-
-uploaded_file = st.file_uploader("Upload your PDF", type="pdf")
-if uploaded_file:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        tmp_file.write(uploaded_file.read())
-        pdf_path = tmp_file.name
-
-    st.info("Extracting text from PDF...")
-    text = extract_text_from_pdf(pdf_path)
-    st.success("Text extracted!")
-
-    st.info("Chunking text...")
-    chunks = chunk_text(text)
-    st.success(f"Chunked into {len(chunks)} pieces.")
-
-    st.info("Creating vector store (may take a minute)...")
-    vector_store = create_vector_store(chunks)
-    st.success("Vector store ready!")
-
-    st.session_state['vector_store'] = vector_store
-
-# Only show Q&A if vector store is ready
-if 'vector_store' in st.session_state:
     st.markdown("---")
-    st.subheader("Ask questions about your PDF")
+    st.header("📤 Upload PDFs")
+    uploaded_files = st.file_uploader(
+        "Select one or multiple PDF files",
+        type=["pdf"],
+        accept_multiple_files=True
+    )
 
-    # Custom input with arrow button
-    col1, col2 = st.columns([8, 1])
-    with col1:
-        user_question = st.text_input(
-            "Type your question:",
-            key="user_question",
-            label_visibility="collapsed"
-        )
-    with col2:
-        submit = st.button("next ->")
+    if st.button("🗑️ Clear Chat History", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
 
-    # If user presses arrow or Enter
-    if submit and st.session_state['user_question']:
-        st.session_state['is_generating'] = True
-        with st.spinner('Hang there, generating answer...'):
-            llm = ChatGroq(api_key=GROQ_API_KEY, model="llama3-70b-8192", temperature=0)
-            qa = RetrievalQA.from_chain_type(
-                llm=llm,
-                chain_type="stuff",
-                retriever=st.session_state['vector_store'].as_retriever()
-            )
-            answer = qa.invoke(st.session_state['user_question'])
-            answer_str = answer["result"]
-            answer_str += "\n\n---\n<span style='color:#ff4b4b;font-size:1.1em;'>read complete pdf</span>"
-            st.session_state['chat_history'].append({
-                "question": st.session_state['user_question'],
-                "answer": answer_str
-            })
-        st.session_state['is_generating'] = False
-        st.session_state.pop("user_question")  
-        st.markdown("<script>window.location.reload();</script>", unsafe_allow_html=True)
+# Initialize session state
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-    # Display chat history in a nice format
-    for chat in reversed(st.session_state['chat_history']):
-        st.markdown(f"""
-        <div style='background-color:#1976D2; border-radius:12px; padding:1em; margin-bottom:1em; box-shadow: 0 2px 8px #0002; color:white;'>
-            <b style='color:#FFC107;'>You:</b> {chat['question']}<br><br>
-            <b style='color:#00E676;'>NoteMate:</b><br>
-            <div style='font-size:1.1em;'>{chat['answer']}</div>
-        </div>
-        """, unsafe_allow_html=True)
+if "pdf_store" not in st.session_state:
+    st.session_state.pdf_store = {"doc_stats": [], "chunks": [], "file_names": []}
+
+# Process uploaded files
+if uploaded_files:
+    current_filenames = [f.name for f in uploaded_files]
+    if st.session_state.pdf_store["file_names"] != current_filenames:
+        with st.spinner("Processing uploaded PDF documents..."):
+            try:
+                doc_stats, all_chunks = process_multiple_pdfs(uploaded_files)
+                st.session_state.pdf_store = {
+                    "doc_stats": doc_stats,
+                    "chunks": all_chunks,
+                    "file_names": current_filenames
+                }
+                st.session_state.messages = []
+                st.toast(f"Successfully loaded {len(doc_stats)} PDF document(s)!", icon="✅")
+            except Exception as e:
+                st.error(f"Failed to process PDF documents: {e}")
+elif st.session_state.pdf_store["file_names"]:
+    # User removed all uploaded files
+    st.session_state.pdf_store = {"doc_stats": [], "chunks": [], "file_names": []}
+    st.session_state.messages = []
+
+# Sidebar Statistics
+doc_stats = st.session_state.pdf_store.get("doc_stats", [])
+chunks = st.session_state.pdf_store.get("chunks", [])
+
+if doc_stats:
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("📊 Document Overview")
+        total_words = sum(d["word_count"] for d in doc_stats)
+        st.write(f"**Total Documents:** {len(doc_stats)}")
+        st.write(f"**Total Words:** {total_words:,}")
+        st.write(f"**Total Chunks:** {len(chunks)}")
+
+        with st.expander("📄 Loaded Files Detail"):
+            for idx, doc in enumerate(doc_stats, 1):
+                st.markdown(f"**{idx}. {doc['filename']}**")
+                st.caption(f"Words: {doc['word_count']:,} | Chunks: {doc['chunk_count']}")
+
+# Display Chat History
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# Chat Input & Answer Generation
+if prompt := st.chat_input("Ask a question about your uploaded PDF document(s)..."):
+    if not api_key:
+        st.error("Please enter a valid Groq API Key in the sidebar or `.env` file.")
+    elif not chunks:
+        st.warning("Please upload at least one readable PDF document first.")
+    else:
+        # Display user query
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Generate assistant response
+        with st.chat_message("assistant"):
+            with st.spinner("Searching documents & generating answer..."):
+                try:
+                    context = get_relevant_context(chunks, prompt)
+                    answer = answer_question(context, prompt, api_key=api_key)
+                    st.markdown(answer)
+                    st.session_state.messages.append({"role": "assistant", "content": answer})
+                except Exception as e:
+                    error_msg = f"❌ Error generating response: {str(e)}"
+                    st.error(error_msg)
